@@ -47,7 +47,7 @@ func (m *Master) AssignTask(request *WorkerRequest, response *MasterResponse) er
 	// iff master already noted all task done then worker will treat as reducer
 	if request.Status == IDEAL {
 		task := m.GetUnallocatedTask()
-		if task != nil {
+		if task == nil {
 			response.END = true
 			return nil
 		}
@@ -61,6 +61,9 @@ func (m *Master) AssignTask(request *WorkerRequest, response *MasterResponse) er
 func (m *Master) UpdateTaskInProcessingList(task *Task) {
 	currentTime := makeTimestamp()
 	if _, present := m.Processes[task.TaskId]; !present {
+		if m.Processes == nil {
+			m.Processes = make(map[string]*ProcessMeta)
+		}
 		log.Printf("taskId not present")
 		m.Processes[task.TaskId] = &ProcessMeta{TaskDetails: task, Status: INPROGRESS, StartTime: currentTime}
 	}

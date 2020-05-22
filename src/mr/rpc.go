@@ -27,6 +27,7 @@ type MasterResponse struct {
 	TaskId       string
 	TaskLocation string
 	END          bool
+	Role         string // MAPPER / REDUCER
 }
 
 // Add your RPC definitions here.
