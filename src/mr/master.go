@@ -1,15 +1,37 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"time"
+)
 
+const (
+	ALLOCATED   string = "ALLOCATED"
+	UNALLOCATED string = "UNALLOCATED"
+	IDEAL       string = "IDEAL"
+	INPROGRESS  string = "INPROGRESS"
+)
 
 type Master struct {
-	// Your definitions here.
+	TaskList  []*Task
+	Processes map[string]*ProcessMeta
+}
 
+type Task struct {
+	TaskId       string
+	FileName     string
+	TaskLocation string
+	Status       string // ALLOCATED , UNALLOCATED
+}
+
+type ProcessMeta struct {
+	TaskDetails *Task
+	Status      string
+	StartTime   int64
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -19,11 +41,42 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (m *Master) AssignTask(request *WorkerRequest, response *MasterResponse) error {
+	// checks worker status
+	// If worker status == IDEAL ==> assign new task to worker to map function on input data
+	// iff master already noted all task done then worker will treat as reducer
+	if request.Status == IDEAL {
+		task := m.GetUnallocatedTask()
+		if task != nil {
+			response.END = true
+			return nil
+		}
+		m.UpdateTaskInProcessingList(task)
+		response.TaskLocation = task.TaskLocation
+		return nil
+	}
 	return nil
 }
 
+func (m *Master) UpdateTaskInProcessingList(task *Task) {
+	currentTime := makeTimestamp()
+	if _, present := m.Processes[task.TaskId]; !present {
+		log.Printf("taskId not present")
+		m.Processes[task.TaskId] = &ProcessMeta{TaskDetails: task, Status: INPROGRESS, StartTime: currentTime}
+	}
+	m.Processes[task.TaskId] = &ProcessMeta{TaskDetails: task, Status: INPROGRESS, StartTime: currentTime}
+}
+
+//GetUnallocatedTask This method will return unallocated task from taskList
+func (m *Master) GetUnallocatedTask() *Task {
+	for _, task := range m.TaskList {
+		if task.Status == UNALLOCATED {
+			task.Status = ALLOCATED
+			return task
+		}
+	}
+	return nil
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -50,7 +103,6 @@ func (m *Master) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -61,10 +113,19 @@ func (m *Master) Done() bool {
 //
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
-
-	// Your code here.
-
-
+	m.GenerateTaskList(files)
 	m.server()
 	return &m
+}
+
+func (m *Master) GenerateTaskList(files []string) {
+	log.Println("Processing tasks into subtasks")
+	for _, file := range files {
+		task := &Task{FileName: file, TaskLocation: file, Status: UNALLOCATED}
+		m.TaskList = append(m.TaskList, task)
+	}
+}
+
+func makeTimestamp() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
 }
