@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -15,8 +17,8 @@ import (
 // Map functions return a slice of KeyValue.
 //
 type KeyValue struct {
-	Key   string
-	Value string
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 //
@@ -35,7 +37,7 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	for {
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 1)
 		log.Println("In worker")
 		task, err := ConnectToMasterNode()
 		if err != nil {
@@ -43,24 +45,54 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 		if task.END {
 			break
-			// return
 		}
-		worker := WorkerMeta{TaskID: task.TaskId, TaskLocation: task.TaskLocation, Role: task.Role, MapperFunc: mapf, ReduceFunc: reducef}
-		err = worker.PerformTask()
+		Job := WorkerMeta{TaskID: task.TaskId, TaskLocation: task.TaskLocation, Role: task.Role, MapperFunc: mapf, ReduceFunc: reducef, NReduce: task.ReducerCount,
+			IntermediateData: make(map[string][]KeyValue, task.ReducerCount)}
+		err = Job.PerformTask()
 		if err != nil {
 			log.Println("Failed to perform task")
 			// tell to master
+		}
+		intermediateFileData := Job.GetIntermediateFileData()
+		resp, err := UpdateIntermediateFileDataToMasterNode(intermediateFileData)
+		if err != nil {
+			log.Println("Failed to perform task")
+		}
+		if resp.END {
+			continue
 		}
 	}
 
 }
 
+func UpdateIntermediateFileDataToMasterNode(files []string) (*MasterResponse, error) {
+	args := WorkerRequest{Status: COMPLETED}
+	reply := MasterResponse{}
+	resptl := call("Master.RegisterIntermediateJobData", &args, &reply)
+	if !resptl {
+		log.Println("Failed to Call RPC")
+		return nil, errors.New("Failed To Call RPC Master.AssignTask")
+	}
+	log.Println("worker reply from master %+v", reply)
+	return &reply, nil
+}
+
 type WorkerMeta struct {
-	TaskID       string
-	TaskLocation string
-	Role         string
-	MapperFunc   func(string, string) []KeyValue
-	ReduceFunc   func(string, []string) string
+	TaskID           string
+	TaskLocation     string
+	Role             string
+	NReduce          int
+	MapperFunc       func(string, string) []KeyValue
+	ReduceFunc       func(string, []string) string
+	IntermediateData map[string][]KeyValue //map[fileName] []KeyValue
+}
+
+func (w *WorkerMeta) GetIntermediateFileData() []string {
+	var files []string
+	for file, _ := range w.IntermediateData {
+		files = append(files, file)
+	}
+	return files
 }
 
 //PerformTask ...
@@ -78,11 +110,30 @@ func (w *WorkerMeta) PerformTask() error {
 			return errors.New("cannot read")
 		}
 		file.Close()
-		w.MapperFunc(w.TaskLocation, string(content))
-		// log.Println("work done %+v", kva)
+
+		kva := w.MapperFunc(w.TaskLocation, string(content))
+		for _, pair := range kva {
+			intermediateFileId := ihash(pair.Key) % w.NReduce
+			fileName := "mr_" + w.TaskID + "_" + strconv.Itoa(intermediateFileId)
+			w.IntermediateData[fileName] = append(w.IntermediateData[fileName], pair)
+		}
+
+		for fileName, _ := range w.IntermediateData {
+			log.Println(fileName)
+			file, _ := os.OpenFile(fileName, os.O_CREATE, os.ModePerm)
+			defer file.Close()
+			data, _ := w.IntermediateData[fileName]
+			//optimize write to file using json.encode
+			intermediateJson, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
+			err = ioutil.WriteFile(fileName, intermediateJson, 0644)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
-		//Write to intermediate file
-		//Intermediate file location send to Master
 	} else if w.Role == REDUCER {
 		return nil
 	}

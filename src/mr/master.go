@@ -20,8 +20,9 @@ const (
 )
 
 type Master struct {
-	TaskList  []*Task
-	Processes map[string]*ProcessMeta
+	ReducerCount int
+	TaskList     []*Task
+	Processes    map[string]*ProcessMeta
 }
 
 type Task struct {
@@ -55,8 +56,18 @@ func (m *Master) AssignTask(request *WorkerRequest, response *MasterResponse) er
 			return nil
 		}
 		m.UpdateTaskInProcessingList(task)
+		response.TaskId = task.TaskId
 		response.TaskLocation = task.TaskLocation
+		response.ReducerCount = m.ReducerCount
 		response.Role = MAPPER
+		return nil
+	}
+	return nil
+}
+
+func (m *Master) RegisterIntermediateJobData(request *WorkerRequest, response *MasterResponse) error {
+	if request.Status == COMPLETED {
+		response.END = true
 		return nil
 	}
 	return nil
@@ -119,7 +130,7 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{}
+	m := Master{ReducerCount: nReduce}
 	m.GenerateTaskList(files)
 	m.server()
 	return &m
@@ -128,7 +139,8 @@ func MakeMaster(files []string, nReduce int) *Master {
 func (m *Master) GenerateTaskList(files []string) {
 	log.Println("Processing tasks into subtasks")
 	for _, file := range files {
-		task := &Task{FileName: file, TaskLocation: file, Status: UNALLOCATED}
+		// uuid := uuid.Uuid()
+		task := &Task{TaskId: file, FileName: file, TaskLocation: file, Status: UNALLOCATED}
 		m.TaskList = append(m.TaskList, task)
 	}
 }

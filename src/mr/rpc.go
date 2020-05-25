@@ -27,6 +27,7 @@ type MasterResponse struct {
 	TaskId       string
 	TaskLocation string
 	END          bool
+	ReducerCount int
 	Role         string // MAPPER / REDUCER
 }
 
