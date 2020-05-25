@@ -14,6 +14,9 @@ const (
 	UNALLOCATED string = "UNALLOCATED"
 	IDEAL       string = "IDEAL"
 	INPROGRESS  string = "INPROGRESS"
+	MAPPER      string = "MAPPER"
+	REDUCER     string = "REDUCER"
+	COMPLETED   string = "COMPLETED"
 )
 
 type Master struct {
@@ -53,6 +56,7 @@ func (m *Master) AssignTask(request *WorkerRequest, response *MasterResponse) er
 		}
 		m.UpdateTaskInProcessingList(task)
 		response.TaskLocation = task.TaskLocation
+		response.Role = MAPPER
 		return nil
 	}
 	return nil

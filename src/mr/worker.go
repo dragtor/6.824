@@ -1,10 +1,14 @@
 package mr
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
+	"time"
 )
 
 //
@@ -30,35 +34,71 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the master.
-	CallExample()
+	for {
+		time.Sleep(time.Second * 3)
+		log.Println("In worker")
+		task, err := ConnectToMasterNode()
+		if err != nil {
+			log.Println(err.Error())
+		}
+		if task.END {
+			break
+			// return
+		}
+		worker := WorkerMeta{TaskID: task.TaskId, TaskLocation: task.TaskLocation, Role: task.Role, MapperFunc: mapf, ReduceFunc: reducef}
+		err = worker.PerformTask()
+		if err != nil {
+			log.Println("Failed to perform task")
+			// tell to master
+		}
+	}
 
 }
 
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
+type WorkerMeta struct {
+	TaskID       string
+	TaskLocation string
+	Role         string
+	MapperFunc   func(string, string) []KeyValue
+	ReduceFunc   func(string, []string) string
+}
 
-	// declare an argument structure.
-	args := WorkerRequest{Status: "IDEAL"}
+func (w *WorkerMeta) PerformTask() error {
+	if w.Role == MAPPER {
+		log.Println("Performing Mapper function")
+		file, err := os.Open(w.TaskLocation)
+		if err != nil {
+			log.Fatalf("cannot open %v", w.TaskLocation)
+			return errors.New("cannot open ")
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", w.TaskLocation)
+			return errors.New("cannot read")
+		}
+		file.Close()
+		w.MapperFunc(w.TaskLocation, string(content))
+		// log.Println("work done %+v", kva)
+		return nil
+		//Write to intermediate file
+		//Intermediate file location send to Master
+	} else if w.Role == REDUCER {
+		return nil
+	}
+	return nil
+}
 
-	// fill in the argument(s).
-	// args.X = 99
-
-	// declare a reply structure.
+//ConnectToMasterNode ...
+func ConnectToMasterNode() (*MasterResponse, error) {
+	args := WorkerRequest{Status: IDEAL}
 	reply := MasterResponse{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.AssignTask", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply Y %v\n", reply)
+	resptl := call("Master.AssignTask", &args, &reply)
+	if !resptl {
+		log.Println("Failed to Call RPC")
+		return nil, errors.New("Failed To Call RPC Master.AssignTask")
+	}
+	log.Println("worker reply from master %+v", reply)
+	return &reply, nil
 }
 
 //
