@@ -63,6 +63,7 @@ type WorkerMeta struct {
 	ReduceFunc   func(string, []string) string
 }
 
+//PerformTask ...
 func (w *WorkerMeta) PerformTask() error {
 	if w.Role == MAPPER {
 		log.Println("Performing Mapper function")
